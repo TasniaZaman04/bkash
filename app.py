@@ -1,203 +1,251 @@
-# Modify the provided code to include global storage for `agreement_id` and adjust payment behavior based on its existence.
-
-
-from flask import Flask, render_template, redirect, url_for, jsonify, request, session
+from flask import Flask, request, jsonify, render_template, redirect, url_for
 import requests
 
 app = Flask(__name__)
-app.secret_key = 'a_secure_random_string'  # Set a secret key for session management
 
-# Credentials and URLs from the JSON file
-BASE_URL = "https://tokenized.sandbox.bka.sh/v1.2.0-beta/tokenized/checkout"
-APP_KEY = "0vWQuCRGiUX7EPVjQDr0EUAYtc"
-APP_SECRET = "jcUNPBgbcqEDedNKdvE4G1cAK7D3hCjmJccNPZZBq96QIxxwAMEx"
+# Global variables to store the agreement ID and payment details
+agreement_id_global = None
+payment_details_global = {}
+
+# Credentials
 USERNAME = "01770618567"
 PASSWORD = "D7DaC<*E*eG"
+APP_KEY = "0vWQuCRGiUX7EPVjQDr0EUAYtc"
+APP_SECRET = "jcUNPBgbcqEDedNKdvE4G1cAK7D3hCjmJccNPZZBq96QIxxwAMEx"
 
-# Global variable for storing agreement ID
-global_agreement_id = None
-
-# Store payment details temporarily, with a list for each session
-payment_details_store = {}
+# API URLs
+GRANT_TOKEN_URL = "https://tokenized.sandbox.bka.sh/v1.2.0-beta/tokenized/checkout/token/grant"
+CREATE_PAYMENT_URL = "https://tokenized.sandbox.bka.sh/v1.2.0-beta/tokenized/checkout/create"
+EXECUTE_PAYMENT_URL = "https://tokenized.sandbox.bka.sh/v1.2.0-beta/tokenized/checkout/execute"
 
 @app.route('/')
-def home():
+def index():
     products = [
-        {'name': 'Product 1', 'price': '20', 'image': 'static/images (1).jpg', 'id': 1},
-        {'name': 'Product 2', 'price': '35', 'image': 'static/images (2).jpg', 'id': 2},
+        {"name": "Product 1", "price": 10, "image": "static/images (1).jpg"},
+        {"name": "Product 2", "price": 20, "image": "static/images (2).jpg"}
     ]
-    # Check if payment details are available in the session
-    payment_history = payment_details_store.get(session.get('user_id'), [])
-    return render_template('home.html', products=products, payment_history=payment_history)
+    return render_template('index.html', products=products, agreement_id=agreement_id_global)
 
-# Helper function to obtain OAuth token
-def grant_token():
-    url = f"{BASE_URL}/token/grant"
-    headers = {'username': USERNAME, 'password': PASSWORD, 'Content-Type': 'application/json'}
-    data = {"app_key": APP_KEY, "app_secret": APP_SECRET}
-    response = requests.post(url, headers=headers, json=data)
-    return response.json().get("id_token") if response.ok else None
-
-# New: Agreement functionalities
-
-# Route to create an agreement
 @app.route('/create_agreement', methods=['POST'])
 def create_agreement():
-    global global_agreement_id  # Access the global variable
-    token = grant_token()
-    if not token:
-        return "Error: Could not obtain token.", 500
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "mode": "0001",
-        "payerReference": session.get("user_reference"),
-    }
-    response = requests.post(f"{BASE_URL}/agreement/create", headers=headers, json=data)
-    response_data = response.json()
-    if response_data.get("status") == "Success":
-        global_agreement_id = response_data["agreement_id"]  # Store agreement ID globally
-        return jsonify({"message": "Agreement created successfully", "agreement_id": response_data["agreement_id"]})
-    else:
-        return jsonify({"error": "Failed to create agreement", "details": response_data})
-
-# Route to execute an agreement
-@app.route('/execute_agreement', methods=['POST'])
-def execute_agreement():
-    global global_agreement_id
-    if not global_agreement_id:
-        return jsonify({"error": "No global agreement ID found"}), 400
-    token = grant_token()
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "agreement_id": global_agreement_id,
-        "payerReference": session.get("user_reference"),
-    }
-    response = requests.post(f"{BASE_URL}/agreement/execute", headers=headers, json=data)
-    return response.json()
-
-# Route to query an agreement's status
-@app.route('/query_agreement', methods=['GET'])
-def query_agreement():
-    global global_agreement_id
-    if not global_agreement_id:
-        return jsonify({"error": "No global agreement ID found"}), 400
-    token = grant_token()
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-    response = requests.get(f"{BASE_URL}/agreement/status/{global_agreement_id}", headers=headers)
-    return response.json()
-
-# Route to cancel an agreement
-@app.route('/cancel_agreement', methods=['POST'])
-def cancel_agreement():
-    global global_agreement_id
-    if not global_agreement_id:
-        return jsonify({"error": "No global agreement ID found"}), 400
-    token = grant_token()
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-    response = requests.post(f"{BASE_URL}/agreement/cancel/{global_agreement_id}", headers=headers)
-    response_data = response.json()
-    if response_data.get("status") == "Success":
-        global_agreement_id = None  # Clear the global agreement ID
-        return jsonify({"message": "Agreement canceled successfully"})
-    else:
-        return jsonify({"error": "Failed to cancel agreement", "details": response_data})
-
-# Payment route to create a payment
-@app.route('/buy/<int:product_id>')
-def create_payment(product_id):
-    global global_agreement_id
-    token = grant_token()
-    if not token:
-        return "Error: Could not obtain token.", 500
-
-    url = f"{BASE_URL}/create"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "X-App-Key": APP_KEY,
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-    }
-
-    # Check if agreement exists for different payment process
-    if global_agreement_id:
-        data = {
-            "mode": "0011",
-            "payerReference": "01619777282",
-            "callbackURL": url_for('payment_status', product_id=product_id, _external=True),
-            "amount": "15" if product_id == 1 else "30",  # Discounted price for agreement holders
-            "currency": "BDT",
-            "intent": "sale",
-            "merchantInvoiceNumber": f"Inv{product_id}"
+    # Step 1: Grant Token
+    token_response = requests.post(
+        GRANT_TOKEN_URL,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "username": USERNAME,
+            "password": PASSWORD
+        },
+        json={
+            "app_key": APP_KEY,
+            "app_secret": APP_SECRET
         }
-    else:
-        data = {
-            "mode": "0011",
-            "payerReference": "01619777282",
-            "callbackURL": url_for('payment_status', product_id=product_id, _external=True),
-            "amount": "20" if product_id == 1 else "35",  # Regular price without agreement
-            "currency": "BDT",
-            "intent": "sale",
-            "merchantInvoiceNumber": f"Inv{product_id}"
+    )
+    
+    if token_response.status_code != 200:
+        return jsonify({"error": "Failed to grant token", "details": token_response.json()}), token_response.status_code
+    
+    # Get the token from the response
+    token_data = token_response.json()
+    id_token = token_data["id_token"]
+    
+    # Step 2: Create Agreement
+    agreement_response = requests.post(
+        CREATE_PAYMENT_URL,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": id_token,
+            "X-App-Key": APP_KEY
+        },
+        json={
+            "mode": "0000",
+            "callbackURL": url_for('callback', _external=True),
+            "payerReference": "01619777282"
         }
+    )
 
-    response = requests.post(url, headers=headers, json=data)
+    if agreement_response.status_code != 200:
+        return jsonify({"error": "Failed to create agreement", "details": agreement_response.json()}), agreement_response.status_code
+    
+    # Extract the bkashURL and paymentID
+    agreement_data = agreement_response.json()
+    bkash_url = agreement_data.get("bkashURL")
+    payment_id = agreement_data["paymentID"]
 
-    if response.ok:
-        payment_url = response.json().get("bkashURL")
-        return redirect(payment_url)
-    return "Error creating payment.", 500
+    # Store the payment_id globally for the callback
+    global agreement_id_global
+    agreement_id_global = payment_id
 
-# Payment status route
-@app.route('/payment_status/<int:product_id>')
-def payment_status(product_id):
-    payment_id = request.args.get("paymentID")
-    token = grant_token()
-    if not token or not payment_id:
-        return "Error: Payment ID or token missing.", 500
+    return jsonify({"bkashURL": bkash_url})
 
-    url = f"{BASE_URL}/payment/status"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "X-App-Key": APP_KEY,
-        "Content-Type": "application/json",
-        "Accept": "application/json"
+@app.route('/create_payment', methods=['POST'])
+def create_payment():
+    # Step 1: Grant Token
+    id_token = grant_token()
+    if not id_token:
+        return jsonify({"error": "Failed to grant token"}), 500
+
+    # Payload setup based on agreement existence
+    payment_payload = {
+        "mode": "0001" if agreement_id_global else "0011",
+        "payerReference": "01619777282",
+        "callbackURL": url_for('callback', _external=True),
+        "amount": "20",
+        "currency": "BDT",
+        "intent": "sale",
+        "merchantInvoiceNumber": "Inv1"
     }
-    data = {"paymentID": payment_id}
-    response = requests.post(url, headers=headers, json=data)
+    if agreement_id_global:
+        payment_payload["agreementID"] = agreement_id_global
 
-    if response.ok:
-        payment_details = response.json()
-        user_id = session.setdefault('user_id', id(session))
-        payment_details_store.setdefault(user_id, []).append(payment_details)
-        return redirect(url_for('home'))
-    return "Error retrieving payment status.", 500
+    # Step 2: Create Payment
+    payment_response = requests.post(
+        CREATE_PAYMENT_URL,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": id_token,
+            "X-App-Key": APP_KEY
+        },
+        json=payment_payload
+    )
 
-# Payment details route
-@app.route('/payment_details')
+    if payment_response.status_code != 200:
+        return jsonify({"error": "Failed to create payment", "details": payment_response.json()}), payment_response.status_code
+    payment_data = payment_response.json()
+    print("Payment Data:", payment_data)  # Log to confirm keys
+
+    # Extract bkashURL and paymentID from the response
+    payment_data = payment_response.json()
+    bkash_url = payment_data.get("bkashURL")
+    payment_id = payment_data["paymentID"]
+    payment_info = {
+        
+        "paymentID": payment_data["paymentID"],
+        "mode": payment_payload["mode"],
+        # Attempt to fetch createTime or use a fallbackd
+        "paymentcreatetime": payment_data.get("createTime", "Unavailable"),
+        "amount": payment_payload["amount"],
+        "currency": payment_payload["currency"],
+        "intent": payment_payload["intent"],
+        "merchantinvoice": payment_payload["merchantInvoiceNumber"],
+        "transactionstatus": "Initiated",
+        "verificationstatus": "completed",
+        "payerreference": payment_payload["payerReference"],
+        "payertype": "Customer",
+        "statuscode": payment_data.get("statusCode", "0000"),
+        "statusmessage": payment_data.get("statusMessage", "Successful")
+    }
+        # Store payment details globally
+    payment_details_global[payment_id] = payment_info
+
+    # Redirect to bkash URL for approval
+    bkash_url = payment_data.get("bkashURL")
+    return jsonify({"bkashURL": bkash_url})
+
+    
+
+   
+@app.route('/callback')
+def callback():
+    status = request.args.get('status')
+    payment_id = request.args.get('paymentID')
+
+    if status == "success":
+        result = execute_agreement(payment_id)
+        if result.status_code == 200:
+            agreement_id = result.get_json().get("agreementID")
+            global agreement_id_global
+            agreement_id_global = agreement_id  # Save the agreement ID globally
+            return render_template("callback_success.html", agreementID=agreement_id)
+        else:
+            return jsonify({"error": "Failed to execute agreement"}), result.status_code
+    else:
+        return render_template('callback_error.html')
+
+def execute_agreement(payment_id):
+    token_response = requests.post(
+        GRANT_TOKEN_URL,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "username": USERNAME,
+            "password": PASSWORD
+        },
+        json={
+            "app_key": APP_KEY,
+            "app_secret": APP_SECRET
+        }
+    )
+
+    if token_response.status_code != 200:
+        return jsonify({"error": "Failed to grant token", "details": token_response.json()}), token_response.status_code
+
+    token_data = token_response.json()
+    id_token = token_data["id_token"]
+
+    execute_response = requests.post(
+        EXECUTE_PAYMENT_URL,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": id_token,
+            "X-App-Key": APP_KEY
+        },
+        json={"paymentID": payment_id}
+    )
+
+    if execute_response.status_code != 200:
+        return jsonify({"error": "Failed to execute agreement", "details": execute_response.json()}), execute_response.status_code
+
+    execute_data = execute_response.json()
+    agreement_id = execute_data.get("agreementID")
+
+    global agreement_id_global
+    agreement_id_global = agreement_id
+
+    return jsonify({"message": "Agreement executed successfully", "agreementID": agreement_id})
+
+@app.route('/delete_agreement_id', methods=['POST'])
+def delete_agreement_id():
+    global agreement_id_global
+    agreement_id_global = None
+    return jsonify({"message": "Agreement ID deleted successfully"})
+
+@app.route('/payment_details', methods=['GET'])
 def payment_details():
-    user_id = session.get('user_id')
-    payment_history = payment_details_store.get(user_id, [])
-    return render_template('payment_details.html', payment_history=payment_history)
+    if payment_details_global:
+        # Retrieve the latest payment by accessing the last key in the dictionary
+        latest_payment_id = list(payment_details_global.keys())[-1]
+        payment_info = payment_details_global[latest_payment_id]
+        return render_template('payment_details.html', payment_details=payment_info)
+    else:
+        return render_template('payment_details.html', payment_details={})
+
+
+# Helper function for getting the grant token
+def grant_token():
+    token_response = requests.post(
+        GRANT_TOKEN_URL,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "username": USERNAME,
+            "password": PASSWORD
+        },
+        json={
+            "app_key": APP_KEY,
+            "app_secret": APP_SECRET
+        }
+    )
+
+    if token_response.status_code != 200:
+        return None
+
+    token_data = token_response.json()
+    return token_data.get("id_token")
 
 if __name__ == '__main__':
     app.run(debug=True)
-
-
-# Saving this updated code to a new file for download
-global_agreement_file_path = '/mnt/data/app_with_global_agreement_id.py'
-with open(global_agreement_file_path, 'w') as final_file_with_global:
-    final_file_with_global.write(updated_code_with_global_agreement_id)
-
-global_agreement_file_path

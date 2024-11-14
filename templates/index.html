@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Our Products</title>
+    <style>
+        /* Styling for buttons, products, and layout */
+        .button-one {
+            width: 200px;
+            height: 50px;
+            background-color: #ff006e;
+            color: white;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .button {
+            width: 200px;
+            height: 50px;
+            background-color: #d00000;
+            color: white;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .product {
+            border: 1px solid #ddd;
+            padding: 20px;
+            margin: 20px;
+            text-align: center;
+        }
+        .product img {
+            width: 150px;
+            height: auto;
+            margin-bottom: 10px;
+        }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            font-family: Arial, sans-serif;
+        }
+        .products-container {
+            display: flex;
+            gap: 20px;
+        }
+        .button-container {
+            display: flex;
+            gap: 20px;
+        }
+    </style>
+    <script>
+        // Function to create the agreement
+        async function createAgreement() {
+            const response = await fetch('/create_agreement', { method: 'POST' });
+
+            if (response.ok) {
+                const data = await response.json();
+                const bkashURL = data.bkashURL;
+                window.location.href = bkashURL;
+            } else {
+                const errorData = await response.json();
+                console.error("Error creating agreement:", errorData);
+                alert("Failed to create agreement: " + errorData.error);
+            }
+        }
+
+        // Function to initiate bKash payment
+        async function makeBkashPayment(price) {
+            const response = await fetch('/create_payment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ "amount": price })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                const bkashURL = data.bkashURL;
+                if (bkashURL) {
+                    window.location.href = bkashURL;
+                } else {
+                    alert("Failed to get the bKash URL.");
+                }
+            } else {
+                alert("Failed to initiate payment.");
+            }
+        }
+        async function viewPaymentDetails() {
+            const response = await fetch('/payment_details'); // Assuming /payment_details is the endpoint
+            if (response.ok) {
+                const data = await response.json();
+                alert(`Payment ID: ${data.paymentID}\nAmount: ${data.amount}\nStatus: ${data.status}\nDate: ${data.date}`);
+            } else {
+                alert("Failed to retrieve payment details.");
+            }
+        }
+
+
+
+
+
+        // Add event listeners when the DOM is loaded
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('createAgreementButton').addEventListener('click', createAgreement);
+        });
+    </script>
+</head>
+<body>
+    <h1>Our Products</h1>
+    <div class="products-container">
+        {% for product in products %}
+        <div class="product">
+            <img src="{{ product.image }}" alt="{{ product.name }}">
+            <h2>{{ product.name }}</h2>
+            <p>Price: {{ product.price }} tk </p>
+            <button class="button-one" onclick="makeBkashPayment({{ product.price }})">Pay with bKash</button>
+        </div>
+        {% endfor %}
+    </div>
+    <div class="button-container">
+        <button id="createAgreementButton" class="button-one">Create Agreement</button>
+        <button id="viewPaymentButton" class="button" onclick="window.location.href='/payment_details'">View Payment Details</button>
+
+    </div>
+</body>
+</html>
